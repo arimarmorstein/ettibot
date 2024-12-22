@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>EttiBot</title>
+  <style>
+    /* Optional styling */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    .ettibot-header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    .ettibot-header img {
+      max-width: 100px; /* size the image however you prefer */
+      border-radius: 50%; /* optional: circle-ish shape */
+    }
+    h1 {
+      margin: 0;
+    }
+    #responseArea {
+      white-space: pre-wrap; /* keep JSON formatting */
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-top: 15px;
+      background: #f9f9f9;
+    }
+  </style>
+</head>
+<body>
+  <div class="ettibot-header">
+    <!-- 1) Display the EttiBot image -->
+    <img src="etti.jpg" alt="EttiBot Photo" />
+    <!-- 2) EttiBot Title -->
+    <h1>EttiBot</h1>
+  </div>
+
+  <p>Type a budget update request below (e.g., “Add $300 to Paid Ads in March-25”)</p>
+
+  <textarea id="userInput" rows="3" cols="50" placeholder="e.g., Add $200 to SaaS and Tools in Apr-25"></textarea>
+  <br>
+  <button onclick="handleSubmit()">Submit</button>
+
+  <div id="responseArea"></div>
+
+  <script>
+    // Replace these with your actual keys/URLs
+    const OPENAI_API_KEY = "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";
+    const APPS_SCRIPT_URL = "https://script.google.com/a/macros/salto.io/s/AKfycbzMAJafPH-wMXEg9A4ihvQHpnHA42mcxo777DMUN1sbSYsUBDFRn6bxmwRddRtCLgBwAg/exec";
+
+    async function handleSubmit() {
+      const userInput = document.getElementById("userInput").value;
+
+      // 1) Parse user input with OpenAI
+      let parsedData;
+      try {
+        parsedData = await parseUserInputWithOpenAI(userInput);
+      } catch (err) {
+        document.getElementById("responseArea").innerText = "Error parsing with OpenAI: " + err;
+        return;
+      }
+
+      // 2) Send the parsed data to Google Apps Script
+      try {
+        const result = await sendDataToAppsScript(parsedData.month, parsedData.category, parsedData.amount);
+        document.getElementById("responseArea").innerText = JSON.stringify(result, null, 2);
+      } catch (err) {
+        document.getElementById("responseArea").innerText = "Error sending data to Apps Script: " + err;
+      }
+    }
+
+    async function parseUserInputWithOpenAI(userInput) {
+      const prompt = `
+      The user said: """${userInput}"""
+      Extract the month, category, and amount from this text in JSON format:
+      {"month": "mar-25", "category": "paid ads", "amount": 200}
+      `;
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + OPENAI_API_KEY
+        },
+        body: JSON.stringify({
+          model: "gpt-3.5-turbo",
+          messages: [
+            {role: "system", content: "You are an assistant that returns parseable JSON."},
+            {role: "user", content: prompt}
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("OpenAI API request failed: " + response.status);
+      }
+
+      const data = await response.json();
+      const completionText = data.choices?.[0]?.message?.content || "";
+
+      // Try to parse the returned text as JSON
+      let parsed;
+      try {
+        parsed = JSON.parse(completionText);
+      } catch (err) {
+        throw new Error("Could not parse JSON from GPT response: " + err.message);
+      }
+
+      return {
+        month: parsed.month || "",
+        category: parsed.category || "",
+        amount: parsed.amount || 0
+      };
+    }
+
+    async function sendDataToAppsScript(month, category, amount) {
+      const payload = { month, category, amount };
+
+      const response = await fetch(APPS_SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error("Apps Script request failed: " + response.status);
+      }
+
+      return await response.json();
+    }
+  </script>
+</body>
+</html>
